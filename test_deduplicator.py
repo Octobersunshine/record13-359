@@ -1,10 +1,11 @@
 import time
 from text_deduplicator import (
     levenshtein_distance,
-    similarity,
+    levenshtein_similarity,
     ngram_fingerprint,
+    ngram_vector,
     jaccard_similarity,
-    fast_similarity,
+    cosine_similarity,
     TextDeduplicator
 )
 
@@ -19,14 +20,14 @@ def test_levenshtein_distance():
     print("✓ levenshtein_distance tests passed")
 
 
-def test_similarity():
-    assert similarity("", "") == 1.0
-    assert similarity("abc", "") == 0.0
-    assert similarity("", "abc") == 0.0
-    assert similarity("hello", "hello") == 1.0
-    assert 0.5 < similarity("hello", "hallo") < 1.0
-    assert similarity("abc", "xyz") < 0.5
-    print("✓ similarity tests passed")
+def test_levenshtein_similarity():
+    assert levenshtein_similarity("", "") == 1.0
+    assert levenshtein_similarity("abc", "") == 0.0
+    assert levenshtein_similarity("", "abc") == 0.0
+    assert levenshtein_similarity("hello", "hello") == 1.0
+    assert 0.5 < levenshtein_similarity("hello", "hallo") < 1.0
+    assert levenshtein_similarity("abc", "xyz") < 0.5
+    print("✓ levenshtein_similarity tests passed")
 
 
 def test_ngram_fingerprint():
@@ -39,6 +40,16 @@ def test_ngram_fingerprint():
     print("✓ ngram_fingerprint tests passed")
 
 
+def test_ngram_vector():
+    vec = ngram_vector("hello", n=2)
+    assert vec == {"he": 1, "el": 1, "ll": 1, "lo": 1}
+    vec = ngram_vector("aaa", n=2)
+    assert vec == {"aa": 2}
+    vec = ngram_vector("", n=3)
+    assert vec == {}
+    print("✓ ngram_vector tests passed")
+
+
 def test_jaccard_similarity():
     assert jaccard_similarity({"a", "b"}, {"a", "b"}) == 1.0
     assert jaccard_similarity({"a", "b"}, {"c", "d"}) == 0.0
@@ -48,16 +59,18 @@ def test_jaccard_similarity():
     print("✓ jaccard_similarity tests passed")
 
 
-def test_fast_similarity():
-    assert fast_similarity("hello", "hello") == 1.0
-    assert fast_similarity("", "") == 1.0
-    assert fast_similarity("abc", "") == 0.0
-    assert fast_similarity("hello world", "hello world!") > 0.7
-    assert fast_similarity("completely different", "totally unrelated") < 0.3
-    print("✓ fast_similarity tests passed")
+def test_cosine_similarity():
+    assert abs(cosine_similarity({"a": 1, "b": 2}, {"a": 1, "b": 2}) - 1.0) < 1e-9
+    assert cosine_similarity({"a": 1}, {"b": 1}) == 0.0
+    assert abs(cosine_similarity({"a": 3, "b": 4}, {"a": 6, "b": 8}) - 1.0) < 1e-9
+    assert cosine_similarity({}, {}) == 0.0
+    assert cosine_similarity({"a": 1}, {}) == 0.0
+    sim = cosine_similarity({"a": 1, "b": 1}, {"b": 1, "c": 1})
+    assert 0 < sim < 1
+    print("✓ cosine_similarity tests passed")
 
 
-def test_deduplicator_exact_mode():
+def test_algorithm_levenshtein():
     texts = [
         "Hello World",
         "hello world",
@@ -67,14 +80,14 @@ def test_deduplicator_exact_mode():
         "Completely different text"
     ]
 
-    dedup = TextDeduplicator(threshold=0.8, mode="exact")
+    dedup = TextDeduplicator(threshold=0.8, algorithm="levenshtein", mode="exact")
     result = dedup.deduplicate(texts)
     assert "Hello World" in result
     assert len(result) == 4
-    print("✓ exact mode deduplication test passed")
+    print("✓ levenshtein algorithm test passed")
 
 
-def test_deduplicator_fast_mode():
+def test_algorithm_jaccard():
     texts = [
         "Hello World",
         "hello world",
@@ -84,14 +97,14 @@ def test_deduplicator_fast_mode():
         "Completely different text"
     ]
 
-    dedup = TextDeduplicator(threshold=0.5, mode="fast")
+    dedup = TextDeduplicator(threshold=0.5, algorithm="jaccard")
     result = dedup.deduplicate(texts)
     assert "Hello World" in result
-    print(f"  fast mode result count: {len(result)}")
-    print("✓ fast mode deduplication test passed")
+    print(f"  jaccard result count: {len(result)}")
+    print("✓ jaccard algorithm test passed")
 
 
-def test_deduplicator_hybrid_mode():
+def test_algorithm_cosine():
     texts = [
         "Hello World",
         "hello world",
@@ -101,11 +114,11 @@ def test_deduplicator_hybrid_mode():
         "Completely different text"
     ]
 
-    dedup = TextDeduplicator(threshold=0.8, mode="hybrid")
+    dedup = TextDeduplicator(threshold=0.5, algorithm="cosine")
     result = dedup.deduplicate(texts)
     assert "Hello World" in result
-    assert len(result) == 4
-    print("✓ hybrid mode deduplication test passed")
+    print(f"  cosine result count: {len(result)}")
+    print("✓ cosine algorithm test passed")
 
 
 def test_deduplicator_with_details():
@@ -115,7 +128,7 @@ def test_deduplicator_with_details():
         "Totally unrelated sentence"
     ]
 
-    dedup = TextDeduplicator(threshold=0.8, mode="exact")
+    dedup = TextDeduplicator(threshold=0.8, algorithm="levenshtein", mode="exact")
     unique, duplicates = dedup.deduplicate_with_details(texts)
 
     assert len(unique) == 2
@@ -161,6 +174,15 @@ def test_deduplicator_clear():
     print("✓ clear test passed")
 
 
+def test_invalid_algorithm():
+    try:
+        TextDeduplicator(algorithm="invalid")
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+    print("✓ invalid algorithm test passed")
+
+
 def test_invalid_mode():
     try:
         TextDeduplicator(mode="invalid")
@@ -168,6 +190,21 @@ def test_invalid_mode():
     except ValueError:
         pass
     print("✓ invalid mode test passed")
+
+
+def test_all_algorithms_consistency():
+    texts = [
+        "完全相同的文本",
+        "完全相同的文本",
+        "完全不同的内容"
+    ]
+
+    for algo in ("levenshtein", "jaccard", "cosine"):
+        threshold = 0.8 if algo == "levenshtein" else 0.5
+        dedup = TextDeduplicator(threshold=threshold, algorithm=algo)
+        result = dedup.deduplicate(texts)
+        assert len(result) == 2, f"{algo} should have 2 unique texts"
+    print("✓ all algorithms consistency test passed")
 
 
 def test_performance_comparison():
@@ -181,27 +218,25 @@ def test_performance_comparison():
 
     print(f"  测试文本数量: {len(texts)}，平均长度: {sum(len(t) for t in texts) // len(texts)} 字符")
 
-    start = time.time()
-    dedup_exact = TextDeduplicator(threshold=0.8, mode="exact")
-    result_exact = dedup_exact.deduplicate(texts)
-    exact_time = time.time() - start
-    print(f"  exact 模式耗时: {exact_time:.4f} 秒，保留 {len(result_exact)} 条")
+    algorithms = [
+        ("levenshtein exact", 0.8, "levenshtein", "exact"),
+        ("levenshtein hybrid", 0.8, "levenshtein", "hybrid"),
+        ("jaccard", 0.5, "jaccard", "exact"),
+        ("cosine", 0.5, "cosine", "exact"),
+    ]
 
-    start = time.time()
-    dedup_fast = TextDeduplicator(threshold=0.5, mode="fast")
-    result_fast = dedup_fast.deduplicate(texts)
-    fast_time = time.time() - start
-    print(f"  fast 模式耗时: {fast_time:.4f} 秒，保留 {len(result_fast)} 条")
+    results = []
+    for name, threshold, algo, mode in algorithms:
+        start = time.time()
+        dedup = TextDeduplicator(threshold=threshold, algorithm=algo, mode=mode)
+        result = dedup.deduplicate(texts)
+        elapsed = time.time() - start
+        results.append((name, elapsed, len(result)))
+        print(f"  {name}: {elapsed:.4f} 秒，保留 {len(result)} 条")
 
-    start = time.time()
-    dedup_hybrid = TextDeduplicator(threshold=0.8, mode="hybrid")
-    result_hybrid = dedup_hybrid.deduplicate(texts)
-    hybrid_time = time.time() - start
-    print(f"  hybrid 模式耗时: {hybrid_time:.4f} 秒，保留 {len(result_hybrid)} 条")
-
-    if exact_time > 0:
-        speedup = exact_time / fast_time
-        print(f"  fast 模式相对 exact 模式加速比: {speedup:.1f}x")
+    if results[0][1] > 0:
+        speedup = results[0][1] / results[2][1]
+        print(f"  jaccard 相对 levenshtein exact 加速比: {speedup:.1f}x")
 
     print("✓ performance comparison test passed")
 
@@ -209,19 +244,22 @@ def test_performance_comparison():
 def run_all_tests():
     print("Running tests...\n")
     test_levenshtein_distance()
-    test_similarity()
+    test_levenshtein_similarity()
     test_ngram_fingerprint()
+    test_ngram_vector()
     test_jaccard_similarity()
-    test_fast_similarity()
-    test_deduplicator_exact_mode()
-    test_deduplicator_fast_mode()
-    test_deduplicator_hybrid_mode()
+    test_cosine_similarity()
+    test_algorithm_levenshtein()
+    test_algorithm_jaccard()
+    test_algorithm_cosine()
     test_deduplicator_with_details()
     test_deduplicator_add_text()
     test_deduplicator_is_duplicate()
     test_deduplicator_case_sensitive()
     test_deduplicator_clear()
+    test_invalid_algorithm()
     test_invalid_mode()
+    test_all_algorithms_consistency()
     test_performance_comparison()
     print("\n=== All tests passed! ===")
 
@@ -243,21 +281,22 @@ def run_demo():
     for i, text in enumerate(texts, 1):
         print(f"  {i}. {text}")
 
-    print(f"\n相似度阈值: 0.8，模式: hybrid (混合模式)")
+    algorithms = [
+        ("levenshtein (编辑距离)", 0.8, "levenshtein", "hybrid"),
+        ("jaccard (Jaccard 相似度)", 0.5, "jaccard", "exact"),
+        ("cosine (余弦相似度)", 0.5, "cosine", "exact"),
+    ]
 
-    dedup = TextDeduplicator(threshold=0.8, mode="hybrid")
-    unique_texts, duplicates = dedup.deduplicate_with_details(texts)
+    for name, threshold, algo, mode in algorithms:
+        print(f"\n--- {name} ---")
+        print(f"阈值: {threshold}")
+        dedup = TextDeduplicator(threshold=threshold, algorithm=algo, mode=mode)
+        unique_texts, duplicates = dedup.deduplicate_with_details(texts)
+        print(f"去重后保留: {len(unique_texts)} 条，剔除: {len(duplicates)} 条")
 
-    print(f"\n去重后保留的文本 ({len(unique_texts)} 条):")
-    for i, text in enumerate(unique_texts, 1):
-        print(f"  {i}. {text}")
-
-    if duplicates:
-        print(f"\n被剔除的重复文本 ({len(duplicates)} 条):")
-        for dup_text, original, sim in duplicates:
-            print(f"  文本: '{dup_text}'")
-            print(f"    与 '{original}' 相似度: {sim:.4f}")
-            print()
+        if duplicates:
+            for dup_text, original, sim in duplicates[:2]:
+                print(f"   '{dup_text[:20]}...' 与 '{original[:20]}...' 相似度: {sim:.4f}")
 
 
 if __name__ == "__main__":
